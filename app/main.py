@@ -47,7 +47,10 @@ class ScanRequest(BaseModel):
     script: str = Field(min_length=10, max_length=20000)
 
 
-@app.get("/healthz")
+# NOTE: /healthz is intercepted by the Google Front End on Cloud Run and never
+# reaches the container (it returns Google's own 404 page). Verified in production.
+# The health route must live under a non-reserved path.
+@app.get("/api/health")
 async def healthz():
     mcp = state["mcp"]
     return {

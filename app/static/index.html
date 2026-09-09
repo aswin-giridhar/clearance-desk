@@ -158,7 +158,7 @@ function render(d){
      'must read; it does not replace them.</p></div>';
   $('#out').innerHTML=h;
 }
-fetch('/healthz').then(r=>r.json()).then(j=>{
+fetch('/api/health').then(r=>r.json()).then(j=>{
   $('#foot').textContent = j.mcp_connected
     ? 'Connected to ClickHouse via the official mcp-clickhouse server. Tools: '+j.mcp_tools.join(', ')
     : 'ClickHouse MCP server not connected: '+(j.error||'starting up');
