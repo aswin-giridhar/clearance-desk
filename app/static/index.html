@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Clearance Desk</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Crect width=%27100%27 height=%27100%27 fill=%27%2312100e%27/%3E%3Ctext y=%2772%27 x=%2750%27 text-anchor=%27middle%27 font-size=%2770%27 font-family=%27Georgia,serif%27 fill=%27%23f6f4ef%27%3EC%3C/text%3E%3C/svg%3E">
 <style>
 :root{
   --ink:#12100e; --paper:#f6f4ef; --rule:#ddd8cd; --muted:#6d675d;
@@ -137,7 +138,9 @@ $('#go').onclick=async()=>{
 function render(d){
   let h='<div class="verdict"><span class="badge b-'+d.overall+'">'+d.overall+'</span>'+
     '<span class="meta">'+d.elements_checked+' elements &middot; '+d.queries_run+
-    ' ClickHouse queries &middot; '+d.elapsed_s+'s</span></div>';
+    ' live ClickHouse '+(d.queries_run===1?'query':'queries')+
+    (d.cache_hits?' &middot; '+d.cache_hits+' served from cache':'')+
+    ' &middot; '+d.elapsed_s+'s</span></div>';
 
   if(d.warnings && d.warnings.length){
     h+='<div class="warn"><strong>Queries that could not complete:</strong><br>'+
