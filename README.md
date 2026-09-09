@@ -1,6 +1,40 @@
+<img src="docs/logo.png" alt="Clearance Desk" width="88" align="left" style="margin-right:18px">
+
 # Clearance Desk
 
-**A script clearance agent for screenwriters and filmmakers, built on Gemini and ClickHouse.**
+**A script clearance agent for screenwriters and filmmakers, built on Google ADK, Gemini and ClickHouse.**
+
+<br clear="left">
+
+## Architecture
+
+```mermaid
+flowchart LR
+    U["Screenwriter<br/>pastes a scene"] --> A
+
+    subgraph ADK["Google ADK &mdash; SequentialAgent &lsquo;clearance_pipeline&rsquo;"]
+        A["LlmAgent<br/><b>element_extractor</b><br/>Vertex AI gemini-2.5-flash<br/>temperature 0, typed schema"]
+        B["LlmAgent<br/><b>clearance_analyst</b><br/>FunctionTool"]
+    end
+
+    A --> D
+    subgraph DET["Deterministic Python &mdash; fixed control flow"]
+        D["SEARCH<br/>collision queries"] --> E["EXPOSE<br/>territory + trend"]
+        E --> F["SCORE<br/>derived thresholds"] --> G["REPORT<br/>+ the SQL for each finding"]
+    end
+
+    B -.-> M
+    D --> M
+    E --> M
+    M["official <b>mcp-clickhouse</b><br/>MCP server &middot; stdio"] --> C[("ClickHouse<br/>imdb &middot; youtube &middot; wikistat<br/>638bn rows")]
+    G --> R["Clearance report"]
+```
+
+Two questions, two independent signals. **Existence** comes from historical film data;
+**exposure** comes from Wikipedia attention measured over the last 365 days, updated daily.
+Keeping them independent is what lets a 2008 snapshot still produce a risk score that
+reflects today &mdash; and it is why a famous title missing from the title index is still
+caught by the exposure signal.
 
 Before a film can be insured, somebody reads the screenplay by hand and checks every invented
 name against the real world. If a character, business or title collides with something real,
