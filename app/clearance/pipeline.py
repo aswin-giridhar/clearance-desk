@@ -212,7 +212,10 @@ async def _prominence(mcp: MCPClickHouse, name: str) -> tuple[int, int, str]:
 async def _person(mcp: MCPClickHouse, name: str):
     parts = name.strip().split()
     if len(parts) < 2:
-        return [], []
+        # A mononym ("MADONNA", "CHER") cannot be split into first/last, so the
+        # people table cannot be queried. Return the same 3-tuple shape as every
+        # other path -- returning a 2-tuple here crashed the request with a bare 500.
+        return [], [], False
     sql = (
         "SELECT first_name, last_name, count() AS credits\n"
         "FROM imdb.roles\n"
@@ -343,10 +346,21 @@ async def run_clearance(script_text: str, mcp: MCPClickHouse) -> Report:
             # carries risk); otherwise it is genuinely clear.
             if hits > 0:
                 s = tier_for(hits, langs)
+                # A single word that is also a place, a concept or a myth ("Phoenix",
+                # "Mercury") will match an article that has nothing to do with a person.
+                # We cannot tell what the article is about from pageview data alone, so
+                # the uncertainty is disclosed rather than silently scored as a person.
+                ambiguous = el.kind == "person" and len(el.text.split()) < 2
+                note = ("no database match. A Wikipedia article of this exact name is "
+                        "actively read, but a single-word name may refer to a place, a "
+                        "concept or a brand rather than a person — confirm what the "
+                        "article is about before acting on this"
+                        if ambiguous else
+                        "no database match, but a Wikipedia article of this exact "
+                        "name is actively read")
                 findings.append(Finding(
                     element=el.text, kind=el.kind, matched=el.text,
-                    detail="no database match, but a Wikipedia article of this exact "
-                           "name is actively read",
+                    detail=note,
                     tier=s.tier, reason=s.reason, advice=s.advice,
                     prominence=hits, languages=langs, sql=sqls,
                     territories=territories, trend_pct=trend_pct))

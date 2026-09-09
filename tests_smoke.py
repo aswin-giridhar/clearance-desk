@@ -77,6 +77,12 @@ if s == 200:
 else:
     check("scene2 scans", False, f"status={s}")
 
+print("\n[mononym does not crash — regression guard]")
+s, d = call("/api/scan", {"script": "INT. STAGE\n\nMADONNA walks to the microphone and sings."})
+check("single-word character name returns 200", s == 200, f"status={s}")
+if s == 200:
+    check("mononym scored, not skipped", len(d.get("findings", [])) > 0, d.get("overall"))
+
 print("\n[invented names are not flagged]")
 s, d = call("/api/scan", {"script": "INT. ROOM\n\nQWIXLBERT THRANDLE meets VEXOMORPH GRELLIN at a firm called ZZQQXX HOLDINGS."})
 if s == 200:

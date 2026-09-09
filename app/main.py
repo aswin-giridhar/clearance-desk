@@ -6,6 +6,7 @@ reused for every request, never spawned per-request.
 """
 from __future__ import annotations
 
+import logging
 import os
 import sys
 from contextlib import asynccontextmanager
@@ -77,6 +78,16 @@ async def scan(req: ScanRequest):
         rep = await run_clearance(req.script, mcp)
     except QuotaExceeded as exc:
         raise HTTPException(429, str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:  # never show a bare 500: say what failed
+        logging.exception("clearance scan failed")
+        raise HTTPException(
+            500,
+            f"The scan failed before a complete report could be produced "
+            f"({type(exc).__name__}). No partial results are shown, because a "
+            f"partial clearance report is worse than none.",
+        ) from exc
     return JSONResponse({
         "overall": rep.overall,
         "elements_checked": rep.elements_checked,
