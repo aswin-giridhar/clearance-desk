@@ -2,3 +2,8 @@
 __pycache__/
 *.pyc
 .env
+
+# Research notes and build artefacts: useful locally, not part of the deliverable
+context/
+video/
+.playwright-mcp/

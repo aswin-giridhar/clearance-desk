@@ -131,6 +131,28 @@ and trips the limit. The sort-key form is load-bearing, not stylistic.
 
 ---
 
+## Screenshots
+
+| | |
+|---|---|
+| ![Landing](docs/screenshots/01-landing.png) | ![Report](docs/screenshots/02-report.png) |
+| The brief, stated plainly | A clearance report: tier, exposure, territory, trend |
+
+![SQL evidence](docs/screenshots/03-sql-evidence.png)
+*Every finding carries the SQL that produced it — read it, re-run it, check the claim.*
+
+## Repository layout
+
+```
+app/            FastAPI application
+  clearance/    adk_agent · pipeline · mcp_client · score · cache · extract
+  static/       single-page UI
+samples/        example scenes
+tests/          end-to-end functional sweep (25 checks)
+docs/           screenshots
+cache.json      warm cache, shipped so the demo survives the shared cluster quota
+```
+
 ## Running it
 
 ```bash

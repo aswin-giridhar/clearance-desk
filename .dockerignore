@@ -3,3 +3,7 @@ __pycache__
 *.pyc
 .git
 context
+video
+docs
+tests
+.playwright-mcp
