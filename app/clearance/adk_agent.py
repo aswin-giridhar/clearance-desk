@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import os
+import uuid
 
 from google.adk.agents import LlmAgent, SequentialAgent
 from google.adk.runners import InMemoryRunner
@@ -173,7 +174,10 @@ async def extract_via_adk(script_text: str) -> list[dict]:
     so this is where the ADK agent does its work on the critical path.
     """
     r = extractor_runner()
-    uid, sid = "clearance", "extract"
+    # A fresh session id per call. A fixed id works for the first scan and raises
+    # AlreadyExistsError on every one after it — and each extraction is independent,
+    # so there is nothing to carry between them anyway.
+    uid, sid = "clearance", f"extract-{uuid.uuid4().hex[:12]}"
     await r.session_service.create_session(app_name=APP_NAME, user_id=uid, session_id=sid)
     msg = types.Content(role="user", parts=[types.Part(text=script_text)])
     text = ""
