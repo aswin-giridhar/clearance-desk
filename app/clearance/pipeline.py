@@ -297,7 +297,18 @@ async def run_clearance(script_text: str, mcp: MCPClickHouse) -> Report:
     cache_hits = 0
 
     # 1. EXTRACT (the only step with model latitude)
-    elements: list[Element] = await asyncio.to_thread(extract_elements, script_text)
+    # Step 1 runs through the Google ADK agent (LlmAgent on Vertex AI, temperature 0,
+    # typed output schema). Everything after this point is deterministic Python.
+    import hashlib
+    from . import adk_agent
+    ck = "adk-extract:" + hashlib.sha256(script_text.strip().encode()).hexdigest()[:32]
+    cached_els = cache.get(ck)
+    if cached_els is None:
+        raw = await adk_agent.extract_via_adk(script_text)
+        cache.put(ck, raw)
+    else:
+        raw = cached_els
+    elements: list[Element] = [Element(**r) for r in raw]
     # One dense paste could otherwise spend a quarter of the shared hourly query
     # budget in a single click, before any judge opens the page.
     MAX_ELEMENTS = 12

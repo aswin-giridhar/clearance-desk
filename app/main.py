@@ -20,7 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from clearance.mcp_client import MCPClickHouse, QuotaExceeded
-from clearance import cache
+from clearance import adk_agent, cache
 from clearance.pipeline import run_clearance
 
 STATIC = Path(__file__).parent / "static"
@@ -35,6 +35,7 @@ async def lifespan(app: FastAPI):
     try:
         await mcp.start()
         state["mcp"] = mcp
+        adk_agent.bind_mcp(mcp)   # ADK FunctionTool reaches ClickHouse through this session
     except Exception as exc:  # surface, never swallow - see /healthz
         state["error"] = str(exc)
     yield
@@ -60,6 +61,7 @@ async def healthz():
         "mcp_tools": mcp.tools if mcp else [],
         "error": state["error"],
         "cache": cache.stats(),
+        "adk_pipeline": [a.name for a in adk_agent.build_pipeline().sub_agents],
     }
 
 
