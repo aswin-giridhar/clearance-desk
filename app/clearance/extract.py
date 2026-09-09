@@ -72,6 +72,24 @@ class Element:
 
 
 def extract_elements(script_text: str) -> list[Element]:
+    """Extract clearable elements. Cached by script hash.
+
+    The call runs at temperature 0 against a fixed response schema, so the same
+    script deterministically yields the same list -- which makes caching it safe
+    and keeps a repeated demo from re-billing a Gemini call.
+    """
+    import hashlib
+    from . import cache as _cache
+    key = "extract:" + hashlib.sha256(script_text.encode()).hexdigest()[:32]
+    hit = _cache.get(key)
+    if hit is not None:
+        return [Element(**e) for e in hit]
+    out = _extract_uncached(script_text)
+    _cache.put(key, [{"text": e.text, "kind": e.kind, "context": e.context} for e in out])
+    return out
+
+
+def _extract_uncached(script_text: str) -> list[Element]:
     resp = client().models.generate_content(
         model=MODEL,
         contents=f"{INSTRUCTION}\n\n--- SCRIPT EXTRACT ---\n{script_text}",

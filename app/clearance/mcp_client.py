@@ -24,6 +24,10 @@ from mcp.client.stdio import stdio_client
 
 # The demo user is readonly, which rejects most SETTINGS changes (error 164).
 # read_overflow_mode is accepted; max_execution_time is not. Verified empirically.
+class QuotaExceeded(RuntimeError):
+    """The demo cluster's hourly quota is exhausted."""
+
+
 SETTINGS_CLAUSE = "SETTINGS read_overflow_mode='throw'"
 
 SERVER_ENV = {
@@ -81,6 +85,15 @@ class MCPClickHouse:
             raise RuntimeError(
                 "TRUNCATED: this query would exceed the cluster read limit, so any "
                 "answer would be partial. Narrow it using the table's sort key."
+            )
+        # The public demo cluster enforces a per-IP hourly quota (60 queries/hour,
+        # 20 per normalised query shape). Exhausting it returns error 201, which
+        # must read as "budget spent", not "your script is bad".
+        if "code: 201" in raw or "QUOTA_EXCEEDED" in raw:
+            raise QuotaExceeded(
+                "The shared ClickHouse demo cluster's hourly query quota is spent "
+                "(60 queries/hour per IP). Cached results still work; fresh lookups "
+                "resume at the top of the hour."
             )
         # mcp-clickhouse returns errors as text rather than raising, so any other
         # failure must be surfaced too -- an error string parsed as data would be

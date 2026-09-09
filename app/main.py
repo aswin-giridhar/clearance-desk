@@ -18,7 +18,8 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from clearance.mcp_client import MCPClickHouse
+from clearance.mcp_client import MCPClickHouse, QuotaExceeded
+from clearance import cache
 from clearance.pipeline import run_clearance
 
 STATIC = Path(__file__).parent / "static"
@@ -57,6 +58,7 @@ async def healthz():
         "mcp_connected": bool(mcp and mcp.ready),
         "mcp_tools": mcp.tools if mcp else [],
         "error": state["error"],
+        "cache": cache.stats(),
     }
 
 
@@ -71,11 +73,15 @@ async def scan(req: ScanRequest):
     mcp = state["mcp"]
     if not (mcp and mcp.ready):
         raise HTTPException(503, f"ClickHouse MCP server unavailable: {state['error']}")
-    rep = await run_clearance(req.script, mcp)
+    try:
+        rep = await run_clearance(req.script, mcp)
+    except QuotaExceeded as exc:
+        raise HTTPException(429, str(exc)) from exc
     return JSONResponse({
         "overall": rep.overall,
         "elements_checked": rep.elements_checked,
         "queries_run": rep.queries_run,
+        "cache_hits": rep.cache_hits,
         "elapsed_s": round(rep.elapsed_s, 1),
         "coverage": rep.coverage,
         "warnings": rep.warnings,

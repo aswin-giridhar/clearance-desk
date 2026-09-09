@@ -25,6 +25,7 @@ import asyncio
 import time
 from dataclasses import dataclass, field
 
+from . import cache
 from .extract import Element, extract_elements
 from .mcp_client import MCPClickHouse
 from .score import report_tier, tier_for
@@ -77,9 +78,10 @@ class Report:
     elements_checked: int
     overall: str
     elapsed_s: float
-    queries_run: int
+    queries_run: int          # real ClickHouse round-trips
     coverage: list[str]
     warnings: list[str] = field(default_factory=list)
+    cache_hits: int = 0       # lookups served from cache (no round-trip)
 
 
 COVERAGE = [
@@ -90,6 +92,36 @@ COVERAGE = [
     f"Current exposure: wiki.wikistat hourly pageviews, last {PROMINENCE_DAYS} days, "
     "all language editions — updated to today.",
 ]
+
+
+async def _prominence_batch(mcp: MCPClickHouse, names: list[str]) -> tuple[dict, str, bool]:
+    """Look up current exposure for every element in ONE query.
+
+    The demo cluster allows only 20 queries of the same normalised shape per hour,
+    so issuing one prominence query per element burns the budget fast. Grouping by
+    path costs a single query regardless of how many names a scene contains.
+    """
+    if not names:
+        return {}, "", False
+    paths = sorted({_wiki_path(n) for n in names})
+    in_list = ", ".join("'" + _esc(p) + "'" for p in paths)
+    sql = (
+        "SELECT path, sum(hits) AS hits, uniqExact(project) AS langs\n"
+        "FROM wiki.wikistat\n"
+        f"WHERE path IN ({in_list})\n"
+        f"  AND time >= now() - INTERVAL {PROMINENCE_DAYS} DAY\n"
+        "GROUP BY path"
+    )
+    ck = "prom:" + "|".join(paths)
+    hit = cache.get(ck)
+    ran = False
+    if hit is None:
+        res = await mcp.run_query(sql)
+        hit = res.get("rows", [])
+        cache.put(ck, hit)
+        ran = True
+    out = {r[0]: (int(r[1] or 0), int(r[2] or 0)) for r in hit}
+    return {n: out.get(_wiki_path(n), (0, 0)) for n in names}, sql, ran
 
 
 async def _prominence(mcp: MCPClickHouse, name: str) -> tuple[int, int, str]:
@@ -121,8 +153,13 @@ async def _person(mcp: MCPClickHouse, name: str):
         f"  AND lower(last_name) = lower('{_esc(parts[-1])}')\n"
         "GROUP BY first_name, last_name ORDER BY credits DESC LIMIT 5"
     )
+    rows = cache.get(sql)
+    if rows is not None:
+        return rows, [sql], True          # cache hit: no round-trip
     res = await mcp.run_query(sql)
-    return res.get("rows", []), [sql]
+    rows = res.get("rows", [])
+    cache.put(sql, rows)
+    return rows, [sql], False
 
 
 async def _title(mcp: MCPClickHouse, name: str):
@@ -132,8 +169,13 @@ async def _title(mcp: MCPClickHouse, name: str):
         "WHERE positionCaseInsensitive(name, '%s') > 0 AND year > 1800\n"
         "ORDER BY exact DESC, rank DESC, year DESC LIMIT 6" % (_esc(name), _esc(name))
     )
+    rows = cache.get(sql)
+    if rows is not None:
+        return rows, [sql], True          # cache hit: no round-trip
     res = await mcp.run_query(sql)
-    return res.get("rows", []), [sql]
+    rows = res.get("rows", [])
+    cache.put(sql, rows)
+    return rows, [sql], False
 
 
 async def _org(mcp: MCPClickHouse, name: str):
@@ -146,36 +188,50 @@ async def _org(mcp: MCPClickHouse, name: str):
         f"  AND match(uploader, '{_esc(_word_boundary_pattern(name))}')\n"
         "GROUP BY uploader HAVING subs > 0 ORDER BY subs DESC LIMIT 5"
     )
+    rows = cache.get(sql)
+    if rows is not None:
+        return rows, [sql], True          # cache hit: no round-trip
     res = await mcp.run_query(sql)
-    return res.get("rows", []), [sql]
+    rows = res.get("rows", [])
+    cache.put(sql, rows)
+    return rows, [sql], False
 
 
 async def run_clearance(script_text: str, mcp: MCPClickHouse) -> Report:
     started = time.time()
     warnings: list[str] = []
     queries = 0
+    cache_hits = 0
 
     # 1. EXTRACT (the only step with model latitude)
     elements: list[Element] = await asyncio.to_thread(extract_elements, script_text)
 
+    # One batched exposure query for the whole scene, before the per-element loop.
+    prom_map, prom_sql, prom_ran = await _prominence_batch(mcp, [e.text for e in elements])
+    if prom_sql:
+        queries += 1 if prom_ran else 0
+        cache_hits += 0 if prom_ran else 1
+
     findings: list[Finding] = []
     for el in elements:
-        rows, sqls = [], []
+        rows, sqls, cached = [], [], False
         try:
             if el.kind == "person":
-                rows, sqls = await _person(mcp, el.text)
+                rows, sqls, cached = await _person(mcp, el.text)
             elif el.kind == "title":
-                rows, sqls = await _title(mcp, el.text)
+                rows, sqls, cached = await _title(mcp, el.text)
             else:
-                rows, sqls = await _org(mcp, el.text)
-            queries += 1
+                rows, sqls, cached = await _org(mcp, el.text)
+            if cached:
+                cache_hits += 1
+            else:
+                queries += 1
         except RuntimeError as exc:
             warnings.append(f"{el.text}: {exc}")
             continue
 
-        hits, langs, psql = await _prominence(mcp, el.text)
-        queries += 1
-        sqls.append(psql)
+        hits, langs = prom_map.get(el.text, (0, 0))
+        sqls.append(prom_sql)
 
         if not rows:
             # Nothing shares the name in the indexed sources. Only report it if the
@@ -219,6 +275,7 @@ async def run_clearance(script_text: str, mcp: MCPClickHouse) -> Report:
         overall=report_tier([f.tier for f in findings]),
         elapsed_s=time.time() - started,
         queries_run=queries,
+        cache_hits=cache_hits,
         coverage=COVERAGE,
         warnings=warnings,
     )
