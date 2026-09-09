@@ -7,3 +7,7 @@ __pycache__/
 context/
 video/
 .playwright-mcp/
+
+# Devpost form copy: local only, never published
+DEVPOST_STORY.md
+SUBMISSION.md
