@@ -2,7 +2,6 @@ fastapi==0.141.1
 uvicorn==0.52.4
 pydantic==2.13.5
 google-genai==2.22.0
-google-adk==2.8.0
 clickhouse-connect==1.8.0
 mcp-clickhouse==0.6.0
 mcp==2.2.0
