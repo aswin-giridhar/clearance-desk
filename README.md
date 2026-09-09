@@ -63,12 +63,26 @@ that decides its own next move. The one step with model latitude runs at `temper
 a response schema, so the same script produces the same report.
 
 ```
- 1. EXTRACT   Gemini 2.5 Flash on Vertex AI → typed list of clearable elements
- 2. SEARCH    collision queries  ─┐
- 3. EXPOSE    attention lookup   ─┼─→ official mcp-clickhouse MCP server → ClickHouse
- 4. SCORE     derived thresholds ─┘
- 5. REPORT    findings + the SQL that produced each one
+ Google ADK  SequentialAgent "clearance_pipeline"
+   ├── LlmAgent "element_extractor"   Gemini 2.5 Flash on Vertex AI, temperature 0,
+   │                                  typed output_schema → clearable elements
+   └── LlmAgent "clearance_analyst"   FunctionTool → official mcp-clickhouse server
+
+ then, deterministic Python:
+   SEARCH   collision queries  ─┐
+   EXPOSE   territory + trend  ─┼─→ official mcp-clickhouse MCP server → ClickHouse
+   SCORE    derived thresholds ─┘
+   REPORT   findings + the SQL that produced each one
 ```
+
+ADK's **workflow agents** are the right primitive for this brief: with a
+`SequentialAgent` the control flow is fixed by the agent graph rather than decided by a
+model at runtime, so only the reasoning *inside* each step is model-driven. That is what
+makes the same screenplay produce the same clearance report. `/api/scan` drives step one
+and hands off to deterministic Python for search, scoring and reporting.
+
+`GET /api/health` reports the live MCP connection, its tools, and the ADK pipeline's
+sub-agents, so the stack can be verified without reading the source.
 
 ### Why not a multi-agent system, and why no self-critique step
 
@@ -137,7 +151,7 @@ No ClickHouse credentials are needed: it connects to the public demo cluster
 
 | Requirement | Where |
 |---|---|
-| Google Cloud | `google-genai` → Vertex AI `gemini-2.5-flash` — `app/clearance/extract.py` |
+| Google Cloud | **`google-adk`** `SequentialAgent`/`LlmAgent` → Vertex AI `gemini-2.5-flash` — `app/clearance/adk_agent.py`; `google-genai` types throughout |
 | ClickHouse partner | official **`mcp-clickhouse`** MCP server over stdio, `run_query` tool — `app/clearance/mcp_client.py` |
 
 ## Limits — stated plainly
