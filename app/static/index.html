@@ -55,6 +55,11 @@ button.ghost:hover{background:var(--ink);color:var(--paper)}
 .kind{font:10px/1 var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.1em}
 .f-match{margin:6px 0 4px}
 .f-reason{font:12px/1.5 var(--mono);color:var(--muted)}
+.terr{margin-top:7px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.tlabel{font:10px/1 var(--mono);text-transform:uppercase;letter-spacing:.1em;color:var(--muted)}
+.tchip{font:11px/1 var(--mono);background:#ece7dc;padding:4px 7px;border-radius:2px}
+.trend{font:11px/1 var(--mono);padding:4px 7px;border-radius:2px}
+.trend.up{background:#f3e0dc;color:var(--crit)} .trend.down{background:#e2ebe4;color:var(--clear)}
 .f-advice{margin-top:7px;font-size:14px}
 details{margin-top:8px}
 summary{font:11px/1 var(--mono);color:var(--accent);cursor:pointer;text-transform:uppercase;letter-spacing:.1em}
@@ -148,6 +153,11 @@ function render(d){
        '<span class="kind">'+esc(f.kind)+'</span></div>'+
        '<div class="f-match">&rarr; <strong>'+esc(f.matched)+'</strong> &mdash; '+esc(f.detail)+'</div>'+
        '<div class="f-reason">'+esc(f.reason)+'</div>'+
+       (f.territories && f.territories.length ? '<div class="terr"><span class="tlabel">Where the attention is</span>'+
+          f.territories.map(t=>'<span class="tchip">'+esc(t.project)+' '+t.share+'%</span>').join('')+
+          (f.trend_pct!==null&&f.trend_pct!==undefined
+            ? '<span class="trend '+(f.trend_pct>=0?'up':'down')+'">'+(f.trend_pct>=0?'\u25b2 +':'\u25bc ')+f.trend_pct+'% vs prior 90d</span>'
+            : '')+'</div>' : '')+
        '<div class="f-advice">'+esc(f.advice)+'</div>'+
        '<details><summary>Show the SQL behind this finding</summary>'+
        f.sql.map(s=>'<pre>'+esc(s)+'</pre>').join('')+'</details></div>';

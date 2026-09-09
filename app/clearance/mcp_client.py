@@ -77,7 +77,11 @@ class MCPClickHouse:
         if not self.ready or self._session is None:
             raise RuntimeError("MCP session not started")
         statement = f"{sql.rstrip().rstrip(';')} {SETTINGS_CLAUSE}"
-        result = await self._session.call_tool("run_query", {"query": statement})
+        try:
+            result = await self._session.call_tool("run_query", {"query": statement})
+        except Exception as exc:  # transport died: mark unhealthy so /api/health tells the truth
+            self.ready = False
+            raise RuntimeError(f"MCP session lost: {exc}") from exc
         parts = [c.text for c in result.content if getattr(c, "text", None)]
         raw = "\n".join(parts)
         # The server returns an error string rather than raising, so inspect it.

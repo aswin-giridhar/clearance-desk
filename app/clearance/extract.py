@@ -80,7 +80,7 @@ def extract_elements(script_text: str) -> list[Element]:
     """
     import hashlib
     from . import cache as _cache
-    key = "extract:" + hashlib.sha256(script_text.encode()).hexdigest()[:32]
+    key = "extract:" + hashlib.sha256(script_text.strip().encode()).hexdigest()[:32]
     hit = _cache.get(key)
     if hit is not None:
         return [Element(**e) for e in hit]
@@ -99,6 +99,10 @@ def _extract_uncached(script_text: str) -> list[Element]:
             response_schema=ELEMENT_SCHEMA,
         ),
     )
+    if not resp.text:
+        raise RuntimeError(
+            "Gemini returned an empty response (the extract may have been safety-filtered)."
+        )
     data = json.loads(resp.text)
     seen, out = set(), []
     for e in data.get("elements", []):

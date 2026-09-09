@@ -70,6 +70,8 @@ class Finding:
     prominence: int
     languages: int
     sql: list[str] = field(default_factory=list)
+    territories: list = field(default_factory=list)   # top language editions by share
+    trend_pct: float | None = None                    # 90d vs previous 90d, percent
 
 
 @dataclass
@@ -94,34 +96,76 @@ COVERAGE = [
 ]
 
 
-async def _prominence_batch(mcp: MCPClickHouse, names: list[str]) -> tuple[dict, str, bool]:
-    """Look up current exposure for every element in ONE query.
+async def _exposure_batch(mcp: MCPClickHouse, names: list[str]) -> tuple[dict, list[str], bool]:
+    """Current exposure for every element, in two queries for the whole scene.
 
-    The demo cluster allows only 20 queries of the same normalised shape per hour,
-    so issuing one prominence query per element burns the budget fast. Grouping by
-    path costs a single query regardless of how many names a scene contains.
+    Query A groups by (path, project), which yields BOTH the per-territory split and
+    the global total (summed across language editions) -- so the territory feature
+    costs nothing extra over the plain total it replaces.
+
+    Query B compares the last 90 days against the 90 before it. A name whose
+    attention is climbing is a name getting riskier to use, which is information a
+    static name-match cannot produce. Both questions are only answerable because
+    wikistat holds 638bn rows of hourly, per-language pageviews updated to today.
     """
     if not names:
-        return {}, "", False
+        return {}, [], False
     paths = sorted({_wiki_path(n) for n in names})
     in_list = ", ".join("'" + _esc(p) + "'" for p in paths)
-    sql = (
-        "SELECT path, sum(hits) AS hits, uniqExact(project) AS langs\n"
+
+    sql_territory = (
+        "SELECT path, project, sum(hits) AS hits\n"
         "FROM wiki.wikistat\n"
         f"WHERE path IN ({in_list})\n"
         f"  AND time >= now() - INTERVAL {PROMINENCE_DAYS} DAY\n"
+        "GROUP BY path, project ORDER BY hits DESC"
+    )
+    sql_trend = (
+        "SELECT path,\n"
+        "       sumIf(hits, time >= now() - INTERVAL 90 DAY) AS recent,\n"
+        "       sumIf(hits, time <  now() - INTERVAL 90 DAY) AS prior\n"
+        "FROM wiki.wikistat\n"
+        f"WHERE path IN ({in_list})\n"
+        "  AND time >= now() - INTERVAL 180 DAY\n"
         "GROUP BY path"
     )
-    ck = "prom:" + "|".join(paths)
+
+    ck = "exposure2:" + "|".join(paths)
     hit = cache.get(ck)
     ran = False
     if hit is None:
-        res = await mcp.run_query(sql)
-        hit = res.get("rows", [])
+        terr = (await mcp.run_query(sql_territory)).get("rows", [])
+        tren = (await mcp.run_query(sql_trend)).get("rows", [])
+        hit = {"territory": terr, "trend": tren}
         cache.put(ck, hit)
         ran = True
-    out = {r[0]: (int(r[1] or 0), int(r[2] or 0)) for r in hit}
-    return {n: out.get(_wiki_path(n), (0, 0)) for n in names}, sql, ran
+
+    by_path: dict[str, dict] = {}
+    for path, project, hits in hit["territory"]:
+        d = by_path.setdefault(path, {"total": 0, "langs": 0, "territories": []})
+        d["total"] += int(hits or 0)
+        d["langs"] += 1
+        d["territories"].append((project, int(hits or 0)))
+    for path, recent, prior in hit["trend"]:
+        d = by_path.setdefault(path, {"total": 0, "langs": 0, "territories": []})
+        r, p_ = int(recent or 0), int(prior or 0)
+        d["trend_pct"] = round(100.0 * (r - p_) / p_, 1) if p_ > 0 else None
+
+    out = {}
+    for n in names:
+        d = by_path.get(_wiki_path(n), {})
+        terrs = sorted(d.get("territories", []), key=lambda t: -t[1])[:4]
+        total = d.get("total", 0)
+        out[n] = {
+            "total": total,
+            "langs": d.get("langs", 0),
+            "trend_pct": d.get("trend_pct"),
+            "territories": [
+                {"project": p, "hits": h, "share": round(100.0 * h / total, 1) if total else 0}
+                for p, h in terrs
+            ],
+        }
+    return out, [sql_territory, sql_trend], ran
 
 
 async def _prominence(mcp: MCPClickHouse, name: str) -> tuple[int, int, str]:
@@ -162,16 +206,39 @@ async def _person(mcp: MCPClickHouse, name: str):
     return rows, [sql], False
 
 
+def _title_variants(title: str) -> list[str]:
+    """Title forms to search for.
+
+    imdb.movies stores titles with a leading article moved to the end, the legacy
+    IMDb convention: "The Godfather" is stored as "Godfather, The". Searching only
+    the natural form silently misses exact matches -- verified: "The Gathering"
+    returns nothing, while "Gathering, The" returns three films (1977, 1998, 2002).
+    Under-reporting collisions is the worst direction for a clearance tool to fail
+    in, so both forms are searched.
+    """
+    t = title.strip()
+    out = [t]
+    for art in ("The ", "A ", "An "):
+        if t.lower().startswith(art.lower()):
+            out.append(f"{t[len(art):]}, {art.strip()}")
+            break
+    return out
+
+
 async def _title(mcp: MCPClickHouse, name: str):
+    """Prior films sharing, or containing, a proposed title."""
+    variants = _title_variants(name)
+    conds = " OR ".join(f"positionCaseInsensitive(name, '{_esc(v)}') > 0" for v in variants)
+    exact = " OR ".join(f"lower(name) = lower('{_esc(v)}')" for v in variants)
     sql = (
-        "SELECT name, year, rank, lower(name) = lower('%s') AS exact\n"
+        f"SELECT name, year, rank, ({exact}) AS exact\n"
         "FROM imdb.movies\n"
-        "WHERE positionCaseInsensitive(name, '%s') > 0 AND year > 1800\n"
-        "ORDER BY exact DESC, rank DESC, year DESC LIMIT 6" % (_esc(name), _esc(name))
+        f"WHERE ({conds}) AND year > 1800\n"
+        "ORDER BY exact DESC, rank DESC, year DESC LIMIT 6"
     )
     rows = cache.get(sql)
     if rows is not None:
-        return rows, [sql], True          # cache hit: no round-trip
+        return rows, [sql], True
     res = await mcp.run_query(sql)
     rows = res.get("rows", [])
     cache.put(sql, rows)
@@ -205,11 +272,20 @@ async def run_clearance(script_text: str, mcp: MCPClickHouse) -> Report:
 
     # 1. EXTRACT (the only step with model latitude)
     elements: list[Element] = await asyncio.to_thread(extract_elements, script_text)
+    # One dense paste could otherwise spend a quarter of the shared hourly query
+    # budget in a single click, before any judge opens the page.
+    MAX_ELEMENTS = 12
+    if len(elements) > MAX_ELEMENTS:
+        warnings.append(
+            f"Scene contains {len(elements)} clearable elements; checking the first "
+            f"{MAX_ELEMENTS} to stay within the shared cluster's hourly query budget."
+        )
+        elements = elements[:MAX_ELEMENTS]
 
     # One batched exposure query for the whole scene, before the per-element loop.
-    prom_map, prom_sql, prom_ran = await _prominence_batch(mcp, [e.text for e in elements])
-    if prom_sql:
-        queries += 1 if prom_ran else 0
+    prom_map, prom_sqls, prom_ran = await _exposure_batch(mcp, [e.text for e in elements])
+    if prom_sqls:
+        queries += 2 if prom_ran else 0
         cache_hits += 0 if prom_ran else 1
 
     findings: list[Finding] = []
@@ -230,8 +306,12 @@ async def run_clearance(script_text: str, mcp: MCPClickHouse) -> Report:
             warnings.append(f"{el.text}: {exc}")
             continue
 
-        hits, langs = prom_map.get(el.text, (0, 0))
-        sqls.append(prom_sql)
+        exp = prom_map.get(el.text, {})
+        hits, langs = exp.get("total", 0), exp.get("langs", 0)
+        territories, trend_pct = exp.get("territories", []), exp.get("trend_pct")
+        # prom_sql covers the whole scene, so label it rather than presenting it as
+        # evidence specific to this one finding.
+        sqls.extend("-- exposure lookup (batched for the whole scene)\n" + q for q in prom_sqls)
 
         if not rows:
             # Nothing shares the name in the indexed sources. Only report it if the
@@ -244,28 +324,39 @@ async def run_clearance(script_text: str, mcp: MCPClickHouse) -> Report:
                     detail="no database match, but a Wikipedia article of this exact "
                            "name is actively read",
                     tier=s.tier, reason=s.reason, advice=s.advice,
-                    prominence=hits, languages=langs, sql=sqls))
+                    prominence=hits, languages=langs, sql=sqls,
+                    territories=territories, trend_pct=trend_pct))
             continue
 
+        # One finding per element, not one per matching row. Five YouTube channels
+        # containing "Coca-Cola" is one clearance issue, not five, and repeating the
+        # identical exposure figure five times makes the report harder to read.
+        matches = []
+        credits = 0
         for row in rows[:5]:
             if el.kind == "person":
-                matched = f"{row[0]} {row[1]}"
-                detail = f"real person, {row[2]} screen credit(s)"
-                credits = int(row[2])
+                matches.append(f"{row[0]} {row[1]} ({row[2]} credits)")
+                credits = max(credits, int(row[2]))
             elif el.kind == "title":
-                matched = f"{row[0]} ({row[1]})"
-                kind_of = "exact title match" if row[3] else "existing title contains this"
-                detail = f"{kind_of}; IMDb rank {row[2] or 'unrated'}"
-                credits = 0
+                mark = "exact" if row[3] else "contains"
+                matches.append(f"{row[0]} ({row[1]}, {mark})")
             else:
-                matched = row[0]
-                detail = f"real organisation, {int(row[1]):,} subscribers, {row[2]} video(s)"
-                credits = 0
-            s = tier_for(hits, langs, credits)
-            findings.append(Finding(
-                element=el.text, kind=el.kind, matched=matched, detail=detail,
-                tier=s.tier, reason=s.reason, advice=s.advice,
-                prominence=hits, languages=langs, sql=sqls))
+                matches.append(f"{row[0]} ({int(row[1]):,} subs)")
+
+        primary = matches[0]
+        if len(matches) > 1:
+            detail = f"{primary} — and {len(matches) - 1} other match(es): " + "; ".join(matches[1:])
+        else:
+            detail = primary
+        label = {"person": "real person", "title": "existing title",
+                 "organisation": "real organisation"}[el.kind]
+        s_ = tier_for(hits, langs, credits)
+        findings.append(Finding(
+            element=el.text, kind=el.kind, matched=primary,
+            detail=f"{label}. {detail}" if len(matches) > 1 else label,
+            tier=s_.tier, reason=s_.reason, advice=s_.advice,
+            prominence=hits, languages=langs, sql=sqls,
+            territories=territories, trend_pct=trend_pct))
 
     order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3, "CLEAR": 4}
     findings.sort(key=lambda f: (order[f.tier], -f.prominence))

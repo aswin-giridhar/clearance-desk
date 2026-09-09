@@ -29,9 +29,20 @@ Most name-matching answers only the first. Clearance Desk separates them:
 | Question | Source | Scale |
 |---|---|---|
 | Existence — real people | `imdb.actors` ⋈ `imdb.roles` | 817,718 people |
-| Existence — prior titles | `imdb.movies` | 388,269 films |
+| Existence — prior titles | `imdb.movies` | 388,269 films (partial — see Limits) |
 | Existence — organisations | `youtube.youtube` | ~537M rows scanned |
 | **Exposure — current attention** | **`wiki.wikistat`** | **638,111,114,033 rows, updated today** |
+
+Exposure is not just a single number. The same table answers two questions no name-lookup can:
+
+- **Where** the attention is, by language edition. `JACK DAWSON` is 46.6% Spanish and 37.4%
+  Portuguese but only 14.6% English — so the name carries far more risk for a Latin American
+  release than an Anglophone one.
+- **Which way it is moving.** `JURASSIC PARK` attention is **+40.2%** over the last 90 days
+  against the 90 before it. A name growing more famous is a name getting riskier to use.
+
+Both come from one `GROUP BY` over 638 billion rows. That is the part of this that genuinely
+needs ClickHouse rather than a conventional database.
 
 `wiki.wikistat` is hourly Wikipedia pageviews per article per language edition. That is what
 makes the risk score reflect *now* rather than the age of the snapshot: the collision set can be
@@ -131,7 +142,17 @@ No ClickHouse credentials are needed: it connects to the public demo cluster
 
 ## Limits — stated plainly
 
-- IMDb tables are a snapshot ending **2008**. Titles and people after that are not covered.
+- IMDb tables are a snapshot ending **2008**, and the title table is **partial**: it holds
+  388,269 films but omits some major ones (*Jurassic Park* and *The Godfather*'s 1972 entry are
+  reachable only via the transposed form, and *Titanic* 1997 is absent entirely). Measured
+  coverage of eight famous titles: **6 of 8**.
+  Two consequences worth knowing:
+  - Titles are stored with the leading article moved to the end — *The Godfather* is
+    `"Godfather, The"`. Searching only the natural form silently misses exact matches, so both
+    forms are queried.
+  - The exposure signal is independent of this table, so a famous title the title index lacks is
+    still caught: *Jurassic Park* scores CRITICAL on 2,273,657 pageviews despite no title match.
+    That redundancy is deliberate.
 - The organisation scan covers uploads from **2021-07-01** onward, ~537M of 4.56bn rows.
 - Exposure is Wikipedia attention. An entity with no Wikipedia article scores zero even if it is
   commercially significant.

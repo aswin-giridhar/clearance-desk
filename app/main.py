@@ -90,6 +90,7 @@ async def scan(req: ScanRequest):
             "detail": f.detail, "tier": f.tier, "reason": f.reason,
             "advice": f.advice, "prominence": f.prominence,
             "languages": f.languages, "sql": f.sql,
+            "territories": f.territories, "trend_pct": f.trend_pct,
         } for f in rep.findings],
     })
 
