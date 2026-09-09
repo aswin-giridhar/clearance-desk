@@ -1,0 +1,8 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+google-genai==2.22.0
+google-adk==2.8.0
+clickhouse-connect==1.8.0
+mcp-clickhouse==0.6.0
+mcp==2.2.0

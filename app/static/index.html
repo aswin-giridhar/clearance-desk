@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clearance Desk</title>
+<style>
+:root{
+  --ink:#12100e; --paper:#f6f4ef; --rule:#ddd8cd; --muted:#6d675d;
+  --accent:#8a2b1f; --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --crit:#8a1c13; --high:#a8541a; --med:#8a7318; --low:#5a6b3a; --clear:#4a6b5e;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);
+  font:16px/1.55 "Iowan Old Style",Georgia,"Times New Roman",serif;}
+.wrap{max-width:1080px;margin:0 auto;padding:0 24px 80px}
+header{border-bottom:2px solid var(--ink);padding:28px 0 14px;margin-bottom:26px}
+.brand{display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap}
+h1{font-size:30px;margin:0;letter-spacing:-.02em}
+h1 span{color:var(--accent)}
+.sub{font:12px/1.4 var(--mono);text-transform:uppercase;letter-spacing:.14em;color:var(--muted)}
+.lede{margin:14px 0 0;max-width:70ch;color:#3a352e}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:26px}
+@media(max-width:880px){.grid{grid-template-columns:1fr}}
+label{font:11px/1 var(--mono);text-transform:uppercase;letter-spacing:.14em;color:var(--muted);
+  display:block;margin-bottom:8px}
+textarea{width:100%;height:340px;padding:14px;border:1px solid var(--rule);background:#fffdf8;
+  font:13px/1.5 var(--mono);color:var(--ink);resize:vertical}
+textarea:focus{outline:2px solid var(--accent);outline-offset:-1px}
+.row{display:flex;gap:10px;align-items:center;margin-top:12px;flex-wrap:wrap}
+button{font:12px/1 var(--mono);text-transform:uppercase;letter-spacing:.1em;padding:12px 18px;
+  border:1px solid var(--ink);background:var(--ink);color:var(--paper);cursor:pointer}
+button:hover:not(:disabled){background:var(--accent);border-color:var(--accent)}
+button:disabled{opacity:.45;cursor:not-allowed}
+button.ghost{background:transparent;color:var(--ink)}
+button.ghost:hover{background:var(--ink);color:var(--paper)}
+.panel{border:1px solid var(--rule);background:#fffdf8;padding:20px;min-height:340px}
+.empty{color:var(--muted);font-style:italic}
+.verdict{display:flex;align-items:center;gap:14px;padding-bottom:14px;margin-bottom:16px;
+  border-bottom:1px solid var(--rule)}
+.badge{font:12px/1 var(--mono);letter-spacing:.12em;color:#fff;padding:9px 12px;text-transform:uppercase}
+.b-CRITICAL{background:var(--crit)} .b-HIGH{background:var(--high)} .b-MEDIUM{background:var(--med)}
+.b-LOW{background:var(--low)} .b-CLEAR{background:var(--clear)}
+.meta{font:11px/1.5 var(--mono);color:var(--muted)}
+.finding{border-left:3px solid var(--rule);padding:12px 0 12px 14px;margin-bottom:14px}
+.finding.t-CRITICAL{border-left-color:var(--crit)} .finding.t-HIGH{border-left-color:var(--high)}
+.finding.t-MEDIUM{border-left-color:var(--med)} .finding.t-LOW{border-left-color:var(--low)}
+.finding.t-CLEAR{border-left-color:var(--clear)}
+.f-head{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+.f-el{font-weight:700}
+.chip{font:10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;padding:4px 7px;
+  border:1px solid currentColor;border-radius:2px}
+.c-CRITICAL{color:var(--crit)} .c-HIGH{color:var(--high)} .c-MEDIUM{color:var(--med)}
+.c-LOW{color:var(--low)} .c-CLEAR{color:var(--clear)}
+.kind{font:10px/1 var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.1em}
+.f-match{margin:6px 0 4px}
+.f-reason{font:12px/1.5 var(--mono);color:var(--muted)}
+.f-advice{margin-top:7px;font-size:14px}
+details{margin-top:8px}
+summary{font:11px/1 var(--mono);color:var(--accent);cursor:pointer;text-transform:uppercase;letter-spacing:.1em}
+pre{background:#12100e;color:#e8e2d5;padding:12px;overflow-x:auto;font:11.5px/1.5 var(--mono);margin:8px 0 0}
+.note{margin-top:26px;padding-top:16px;border-top:1px solid var(--rule);font-size:13px;color:var(--muted)}
+.note h3{font:11px/1 var(--mono);text-transform:uppercase;letter-spacing:.14em;color:var(--ink);margin:0 0 10px}
+.note li{margin-bottom:6px}
+.warn{border-left:3px solid var(--high);padding-left:12px;margin:12px 0;font-size:13px}
+.spin{display:inline-block;width:11px;height:11px;border:2px solid var(--rule);
+  border-top-color:var(--accent);border-radius:50%;animation:s .7s linear infinite;vertical-align:-1px}
+@keyframes s{to{transform:rotate(360deg)}}
+footer{margin-top:44px;padding-top:16px;border-top:1px solid var(--rule);font:11px/1.7 var(--mono);color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div class="brand">
+    <h1>Clearance <span>Desk</span></h1>
+    <div class="sub">Script clearance &middot; powered by Gemini + ClickHouse</div>
+  </div>
+  <p class="lede">Before a film can be insured, somebody reads the script by hand and checks every
+  invented name against the real world &mdash; a report that costs <strong>$1,399&ndash;$5,000</strong>
+  and takes one to two weeks. This does the search part in seconds, against 817,718 real people,
+  388,269 prior film titles, and 638 billion rows of live Wikipedia attention data.</p>
+</header>
+
+<div class="grid">
+  <section>
+    <label for="script">Screenplay extract</label>
+    <textarea id="script" spellcheck="false" placeholder="Paste a scene…"></textarea>
+    <div class="row">
+      <button id="go">Run clearance</button>
+      <button id="load" class="ghost">Load sample scene</button>
+      <span class="meta" id="status"></span>
+    </div>
+  </section>
+
+  <section>
+    <label>Clearance report</label>
+    <div class="panel" id="out"><p class="empty">No report yet. Paste a scene and run a clearance check.</p></div>
+  </section>
+</div>
+
+<footer id="foot">Every finding below is produced by a SQL query you can read and re-run.</footer>
+</div>
+
+<script>
+const $=s=>document.querySelector(s);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+$('#load').onclick=async()=>{
+  const r=await fetch('/api/sample'); const j=await r.json();
+  $('#script').value=j.script; $('#status').textContent='';
+};
+
+$('#go').onclick=async()=>{
+  const script=$('#script').value.trim();
+  if(script.length<10){$('#status').textContent='Paste a scene first.';return;}
+  $('#go').disabled=true;
+  $('#status').innerHTML='<span class="spin"></span> extracting names, then querying ClickHouse…';
+  $('#out').innerHTML='<p class="empty">Running…</p>';
+  try{
+    const r=await fetch('/api/scan',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({script})});
+    if(!r.ok){const t=await r.text();throw new Error(t);}
+    render(await r.json());
+    $('#status').textContent='';
+  }catch(e){
+    $('#out').innerHTML='<div class="warn"><strong>Scan failed.</strong><br>'+esc(e.message)+'</div>';
+    $('#status').textContent='';
+  }finally{$('#go').disabled=false;}
+};
+
+function render(d){
+  let h='<div class="verdict"><span class="badge b-'+d.overall+'">'+d.overall+'</span>'+
+    '<span class="meta">'+d.elements_checked+' elements &middot; '+d.queries_run+
+    ' ClickHouse queries &middot; '+d.elapsed_s+'s</span></div>';
+
+  if(d.warnings && d.warnings.length){
+    h+='<div class="warn"><strong>Queries that could not complete:</strong><br>'+
+       d.warnings.map(esc).join('<br>')+'</div>';
+  }
+  if(!d.findings.length){
+    h+='<p class="empty">No collisions found in the indexed sources.</p>';
+  }
+  for(const f of d.findings){
+    h+='<div class="finding t-'+f.tier+'">'+
+       '<div class="f-head"><span class="f-el">'+esc(f.element)+'</span>'+
+       '<span class="chip c-'+f.tier+'">'+f.tier+'</span>'+
+       '<span class="kind">'+esc(f.kind)+'</span></div>'+
+       '<div class="f-match">&rarr; <strong>'+esc(f.matched)+'</strong> &mdash; '+esc(f.detail)+'</div>'+
+       '<div class="f-reason">'+esc(f.reason)+'</div>'+
+       '<div class="f-advice">'+esc(f.advice)+'</div>'+
+       '<details><summary>Show the SQL behind this finding</summary>'+
+       f.sql.map(s=>'<pre>'+esc(s)+'</pre>').join('')+'</details></div>';
+  }
+  h+='<div class="note"><h3>What this check does and does not cover</h3><ul>'+
+     d.coverage.map(c=>'<li>'+esc(c)+'</li>').join('')+
+     '</ul><p>This is a search tool, not legal advice. It narrows what a clearance lawyer '+
+     'must read; it does not replace them.</p></div>';
+  $('#out').innerHTML=h;
+}
+fetch('/healthz').then(r=>r.json()).then(j=>{
+  $('#foot').textContent = j.mcp_connected
+    ? 'Connected to ClickHouse via the official mcp-clickhouse server. Tools: '+j.mcp_tools.join(', ')
+    : 'ClickHouse MCP server not connected: '+(j.error||'starting up');
+});
+</script>
+</body>
+</html>
