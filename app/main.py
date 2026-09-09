@@ -96,12 +96,14 @@ async def scan(req: ScanRequest):
         "elapsed_s": round(rep.elapsed_s, 1),
         "coverage": rep.coverage,
         "warnings": rep.warnings,
+        "partial": rep.partial,
         "findings": [{
             "element": f.element, "kind": f.kind, "matched": f.matched,
             "detail": f.detail, "tier": f.tier, "reason": f.reason,
             "advice": f.advice, "prominence": f.prominence,
             "languages": f.languages, "sql": f.sql,
             "territories": f.territories, "trend_pct": f.trend_pct,
+            "trend_new": f.trend_new, "terr_more": f.terr_more,
         } for f in rep.findings],
     })
 

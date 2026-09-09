@@ -81,7 +81,15 @@ def tier_for(prominence: int, languages: int, credits: int = 0) -> Scored:
     if not bits:
         bits.append("no public footprint found in the indexed sources")
     reason = "; ".join(bits) + (f" ({note})" if note else "")
-    return Scored(tier=t, reason=reason, advice=ADVICE[t])
+    advice = ADVICE[t]
+    if t == "CLEAR" and credits:
+        # A real person with screen credits but no current Wikipedia article is a
+        # collision, just a low-exposure one. The stock CLEAR wording ("no collision
+        # found") would directly contradict the match printed above it.
+        advice = ("A real person of this name has screen credits but no measurable "
+                  "current public profile. Record the check; exposure is low, but this "
+                  "is not a clear result.")
+    return Scored(tier=t, reason=reason, advice=advice)
 
 
 def report_tier(tiers: list[str]) -> str:

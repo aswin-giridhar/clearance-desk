@@ -22,6 +22,7 @@ Steps:
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from dataclasses import dataclass, field
 
@@ -52,6 +53,13 @@ def _wiki_variants(name: str) -> list[str]:
     out = [n.replace(" ", "_")]
     if n.isupper():
         out.append(n.title().replace(" ", "_"))
+        # .title() also flattens internal capitals: MCDONALD -> "Mcdonald", but the
+        # article is "McDonald". Verified live: "RONALD MCDONALD" scored LOW on 228
+        # views because neither variant was the real path. Add the Mc/Mac form.
+        mac = re.sub(r"\b(Mc|Mac)([a-z])",
+                     lambda m: m.group(1) + m.group(2).upper(), n.title())
+        if mac != n.title():
+            out.append(mac.replace(" ", "_"))
     return list(dict.fromkeys(out))
 
 
@@ -93,6 +101,8 @@ class Finding:
     sql: list[str] = field(default_factory=list)
     territories: list = field(default_factory=list)   # top language editions by share
     trend_pct: float | None = None                    # 90d vs previous 90d, percent
+    trend_new: bool = False                           # attention began inside the window
+    terr_more: int = 0                                # editions beyond the ones shown
 
 
 @dataclass
@@ -104,6 +114,7 @@ class Report:
     queries_run: int          # real ClickHouse round-trips
     coverage: list[str]
     warnings: list[str] = field(default_factory=list)
+    partial: bool = False     # scan did not complete for every element
     cache_hits: int = 0       # lookups served from cache (no round-trip)
 
 
@@ -151,7 +162,9 @@ async def _exposure_batch(mcp: MCPClickHouse, names: list[str]) -> tuple[dict, l
         "GROUP BY path"
     )
 
-    ck = "exposure2:" + "|".join(paths)
+    # Key includes the windows: changing PROMINENCE_DAYS must not silently
+    # serve numbers computed under the old window.
+    ck = f"exposure:d{PROMINENCE_DAYS}:t90:" + "|".join(paths)
     hit = cache.get(ck)
     ran = False
     if hit is None:
@@ -171,6 +184,7 @@ async def _exposure_batch(mcp: MCPClickHouse, names: list[str]) -> tuple[dict, l
         d = by_path.setdefault(path, {"total": 0, "langs": 0, "territories": []})
         r, p_ = int(recent or 0), int(prior or 0)
         d["trend_pct"] = round(100.0 * (r - p_) / p_, 1) if p_ > 0 else None
+        d["trend_new"] = p_ == 0 and r > 0   # attention started inside the window
 
     out = {}
     for n in names:
@@ -184,29 +198,14 @@ async def _exposure_batch(mcp: MCPClickHouse, names: list[str]) -> tuple[dict, l
             "total": total,
             "langs": d.get("langs", 0),
             "trend_pct": d.get("trend_pct"),
+            "trend_new": d.get("trend_new", False),
+            "territories_total": len(d.get("territories", [])),
             "territories": [
                 {"project": p, "hits": h, "share": round(100.0 * h / total, 1) if total else 0}
                 for p, h in terrs
             ],
         }
     return out, [sql_territory, sql_trend], ran
-
-
-async def _prominence(mcp: MCPClickHouse, name: str) -> tuple[int, int, str]:
-    sql = (
-        "SELECT sum(hits) AS hits, uniqExact(project) AS langs\n"
-        "FROM wiki.wikistat\n"
-        f"WHERE path = '{_esc(_wiki_path(name))}'\n"
-        f"  AND time >= now() - INTERVAL {PROMINENCE_DAYS} DAY"
-    )
-    try:
-        res = await mcp.run_query(sql)
-    except RuntimeError:
-        return 0, 0, sql
-    rows = res.get("rows") if isinstance(res, dict) else None
-    if not rows or rows[0][0] is None:
-        return 0, 0, sql
-    return int(rows[0][0] or 0), int(rows[0][1] or 0), sql
 
 
 async def _person(mcp: MCPClickHouse, name: str):
@@ -336,6 +335,8 @@ async def run_clearance(script_text: str, mcp: MCPClickHouse) -> Report:
         exp = prom_map.get(el.text, {})
         hits, langs = exp.get("total", 0), exp.get("langs", 0)
         territories, trend_pct = exp.get("territories", []), exp.get("trend_pct")
+        terr_more = max(0, exp.get("territories_total", 0) - len(territories))
+        trend_new = exp.get("trend_new", False)
         # prom_sql covers the whole scene, so label it rather than presenting it as
         # evidence specific to this one finding.
         sqls.extend("-- exposure lookup (batched for the whole scene)\n" + q for q in prom_sqls)
@@ -363,7 +364,8 @@ async def run_clearance(script_text: str, mcp: MCPClickHouse) -> Report:
                     detail=note,
                     tier=s.tier, reason=s.reason, advice=s.advice,
                     prominence=hits, languages=langs, sql=sqls,
-                    territories=territories, trend_pct=trend_pct))
+                    territories=territories, trend_pct=trend_pct,
+                    trend_new=trend_new, terr_more=terr_more))
             continue
 
         # One finding per element, not one per matching row. Five YouTube channels
@@ -394,8 +396,13 @@ async def run_clearance(script_text: str, mcp: MCPClickHouse) -> Report:
             detail=f"{label}. {detail}" if len(matches) > 1 else label,
             tier=s_.tier, reason=s_.reason, advice=s_.advice,
             prominence=hits, languages=langs, sql=sqls,
-            territories=territories, trend_pct=trend_pct))
+            territories=territories, trend_pct=trend_pct,
+                    trend_new=trend_new, terr_more=terr_more))
 
+    # A verdict computed from an incomplete scan must not present as final. The
+    # badge itself carries the flag: a reader who skims only the badge would
+    # otherwise take a partial result as the whole answer.
+    partial = bool(warnings)
     order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3, "CLEAR": 4}
     findings.sort(key=lambda f: (order[f.tier], -f.prominence))
     return Report(
@@ -407,4 +414,5 @@ async def run_clearance(script_text: str, mcp: MCPClickHouse) -> Report:
         cache_hits=cache_hits,
         coverage=COVERAGE,
         warnings=warnings,
+        partial=partial,
     )

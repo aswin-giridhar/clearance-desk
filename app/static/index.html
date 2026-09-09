@@ -158,9 +158,12 @@ function render(d){
        '<div class="f-reason">'+esc(f.reason)+'</div>'+
        (f.territories && f.territories.length ? '<div class="terr"><span class="tlabel">Where the attention is</span>'+
           f.territories.map(t=>'<span class="tchip">'+esc(t.project)+' '+t.share+'%</span>').join('')+
-          (f.trend_pct!==null&&f.trend_pct!==undefined
-            ? '<span class="trend '+(f.trend_pct>=0?'up':'down')+'">'+(f.trend_pct>=0?'\u25b2 +':'\u25bc ')+f.trend_pct+'% vs prior 90d</span>'
-            : '')+'</div>' : '')+
+          (f.terr_more?'<span class="tchip">+'+f.terr_more+' more</span>':'')+
+          (f.trend_new
+            ? '<span class="trend up">\u25b2 new attention this quarter</span>'
+            : (f.trend_pct!==null&&f.trend_pct!==undefined
+              ? '<span class="trend '+(f.trend_pct>=0?'up':'down')+'">'+(f.trend_pct>=0?'\u25b2 +':'\u25bc ')+f.trend_pct+'% vs prior 90d</span>'
+              : ''))+'</div>' : '')+
        '<div class="f-advice">'+esc(f.advice)+'</div>'+
        '<details><summary>Show the SQL behind this finding</summary>'+
        f.sql.map(s=>'<pre>'+esc(s)+'</pre>').join('')+'</details></div>';
