@@ -5,5 +5,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
 COPY samples ./samples
+# Ship a warm cache so the demo works even if the shared cluster quota is spent.
+COPY cache.json ./cache.json
 ENV PORT=8080
 CMD exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT} --timeout-keep-alive 120
