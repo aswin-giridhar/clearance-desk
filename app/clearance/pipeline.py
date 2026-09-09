@@ -34,6 +34,27 @@ ORG_WINDOW_START = "2021-07-01"
 PROMINENCE_DAYS = 365
 
 
+def _wiki_variants(name: str) -> list[str]:
+    """Wikipedia article paths to try for a name.
+
+    Screenplays write names in ALL CAPS, so 'JACK DAWSON' must be title-cased to
+    reach 'Jack_Dawson'. But .title() mangles acronyms and Mc/Mac names, and the
+    damage is silent: Wikipedia redirects mean 'Ibm' still returns 20,508 hits
+    against IBM's real 1,618,996, so nothing looks broken while the risk tier drops
+    from CRITICAL to MEDIUM. Measured under-reporting: IBM 79x, BBC 73x,
+    McDonald's 304x -- on exactly the brands most likely to object.
+
+    Both the as-written and the title-cased form are therefore queried, and the
+    higher figure wins. Because they go into the same IN list, this costs no extra
+    query.
+    """
+    n = name.strip()
+    out = [n.replace(" ", "_")]
+    if n.isupper():
+        out.append(n.title().replace(" ", "_"))
+    return list(dict.fromkeys(out))
+
+
 def _wiki_path(name: str) -> str:
     """Map a script name to a Wikipedia article path.
 
@@ -110,7 +131,7 @@ async def _exposure_batch(mcp: MCPClickHouse, names: list[str]) -> tuple[dict, l
     """
     if not names:
         return {}, [], False
-    paths = sorted({_wiki_path(n) for n in names})
+    paths = sorted({v for n in names for v in _wiki_variants(n)})
     in_list = ", ".join("'" + _esc(p) + "'" for p in paths)
 
     sql_territory = (
@@ -153,7 +174,10 @@ async def _exposure_batch(mcp: MCPClickHouse, names: list[str]) -> tuple[dict, l
 
     out = {}
     for n in names:
-        d = by_path.get(_wiki_path(n), {})
+        # Take whichever casing variant Wikipedia actually knows about.
+        cands = [by_path.get(v) for v in _wiki_variants(n)]
+        cands = [c for c in cands if c]
+        d = max(cands, key=lambda c: c.get("total", 0)) if cands else {}
         terrs = sorted(d.get("territories", []), key=lambda t: -t[1])[:4]
         total = d.get("total", 0)
         out[n] = {
