@@ -201,7 +201,9 @@ uvicorn app.main:app --reload --port 8080
 No ClickHouse credentials are needed: it connects to the public demo cluster
 (`sql-clickhouse.clickhouse.com:8443`, user `demo`, empty password, read-only).
 
-`GET /healthz` reports whether the MCP session came up and which tools it exposes.
+`GET /api/health` reports the live MCP session, the tools it exposes, the ADK pipeline's
+sub-agents and the warm-cache size. (`/healthz` is reserved by the Google Front End on
+Cloud Run and never reaches the container — a bug this project hit and fixed.)
 
 ## How Google Cloud and ClickHouse are used at runtime
 
